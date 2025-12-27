@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>نظام الصالون السحابي</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root { 
+            --header-blue: #e3effd; 
+            --btn-cash: #fff9c4; 
+            --btn-visa: #e1f5fe; 
+            --border-black: #000; 
+            --success-green: #28a745;
+        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; margin: 0; padding: 10px; }
+        
+        .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; max-width: 600px; margin: 0 auto; padding: 10px; }
+        .worker-card { background: white; text-align: center; }
+        .worker-name-box { background: var(--header-blue); border: 1px solid var(--border-black); padding: 12px; font-weight: bold; font-size: 1.1rem; margin-bottom: 8px; }
+        .label-text { display: block; font-size: 1rem; margin-bottom: 5px; color: #333; }
+        input[type="number"], input[type="text"], input[type="date"] { width: 100%; padding: 12px; border: 1px solid var(--border-black); border-radius: 5px; text-align: center; box-sizing: border-box; }
+        input[type="number"] { font-size: 1.4rem; margin-bottom: 12px; }
+
+        .btn-group { display: flex; gap: 8px; width: 100%; }
+        .btn-action { flex: 1; padding: 15px 5px; border: 1px solid var(--border-black); font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 0.95rem; }
+        .btn-cash { background-color: var(--btn-cash); color: #856404; }
+        .btn-visa { background-color: var(--btn-visa); color: #004085; }
+        .btn-action:active { transform: scale(0.95); }
+
+        #toast { visibility: hidden; min-width: 200px; background: #333; color: #fff; text-align: center; border-radius: 8px; padding: 15px; position: fixed; z-index: 10000; left: 50%; bottom: 20px; transform: translateX(-50%); }
+        #toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
+        @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 20px; opacity: 1;} }
+        @keyframes fadeout { from {bottom: 20px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+
+        #adminPanel { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #fff; z-index: 9999; padding: 20px; box-sizing: border-box; overflow-y: auto; }
+        .admin-box { max-width: 900px; margin: 0 auto; padding-bottom: 50px; }
+        .table-responsive { overflow-x: auto; margin-top: 20px; border: 1px solid #ddd; }
+        table { width: 100%; border-collapse: collapse; min-width: 500px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
+        th { background: #f8f9fa; font-weight: bold; }
+        .summary-card { background: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #ddd; margin-bottom: 20px; }
+        .status-bar { font-size: 0.8rem; color: #666; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background: white; margin-bottom: 15px; border-bottom: 1px solid #ddd;">
+    <h3 style="margin:0;">سجل المبيعات</h3>
+    <div id="syncStatus" class="status-bar">جاري التحقق...</div>
+    <button onclick="askPin()" style="background:none; border:none; font-size: 24px; cursor:pointer;">⚙️</button>
+</div>
+
+<div class="grid-container" id="workerGrid"></div>
+
+<div id="toast">تم الحفظ ✅</div>
+
+<div id="adminPanel">
+    <div class="admin-box">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2>تقرير المبيعات</h2>
+            <button onclick="closeAdmin()" style="background:red; color:white; border:none; padding:10px 20px; border-radius:5px; cursor:pointer;">إغلاق</button>
+        </div>
+        <hr>
+        <h4>تعديل أسماء الموظفين</h4>
+        <div id="nameInputs" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;"></div>
+        <button onclick="saveNames()" style="background: var(--success-green); color: white; margin-top: 10px; padding: 12px; width: 200px; border:none; border-radius: 5px; font-weight: bold;">حفظ الأسماء</button>
+        <hr>
+        <h4>تقارير الدخل</h4>
+        من: <input type="date" id="dateF" style="width: auto;"> إلى: <input type="date" id="dateT" style="width: auto;">
+        <button onclick="getReport()" style="padding: 10px 20px; background: #007bff; color:white; border:none; border-radius:5px; cursor:pointer; margin-right: 5px;">عرض التقرير</button>
+        
+        <div id="summaryArea" style="margin-top:20px;"></div>
+        <div class="table-responsive">
+            <div id="reportTable"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzrh5FHRG4UpNcGuiJg8uKb6Q3lZnXR3L3e5CopVHkmiqmn_KZbc1Q53iu0GKGISFmp/exec";
+    
+    // تم تعديل مصفوفة الأسماء لتطابق الأسماء في ورقة "تفاصيل" (احمد بدون همزة)
+    let workers = JSON.parse(localStorage.getItem('s_workers')) || ["احمد", "محمد", "يوسف", "ماجد"];
+    
+    let trans = JSON.parse(localStorage.getItem('s_trans')) || [];
+    let queue = JSON.parse(localStorage.getItem('s_queue')) || [];
+    const ADMIN_PIN = "1234";
+
+    function init() {
+        const grid = document.getElementById('workerGrid');
+        grid.innerHTML = '';
+        workers.forEach((name, i) => {
+            grid.innerHTML += `
+                <div class="worker-card">
+                    <div class="worker-name-box">${name}</div>
+                    <span class="label-text">المبلغ</span>
+                    <input type="number" id="val-${i}" placeholder="0" inputmode="decimal">
+                    <div class="btn-group">
+                        <button class="btn-action btn-cash" onclick="add(${i}, 'كاش')">
+                            <i class="fas fa-money-bill-wave"></i> كاش
+                        </button>
+                        <button class="btn-action btn-visa" onclick="add(${i}, 'شبكة')">
+                            <i class="fas fa-credit-card"></i> شبكة
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+        updateSyncUI();
+        processQueue();
+    }
+
+    function add(idx, type) {
+        const input = document.getElementById(`val-${idx}`);
+        const amt = parseFloat(input.value);
+        if(!amt || amt <= 0) return;
+
+        const data = {
+            date: new Date().toLocaleDateString('en-CA'),
+            time: new Date().toLocaleTimeString('ar-SA'),
+            name: workers[idx],
+            amt: amt,
+            type: type,
+            id: Date.now()
+        };
+
+        trans.push(data);
+        localStorage.setItem('s_trans', JSON.stringify(trans));
+        queue.push(data);
+        localStorage.setItem('s_queue', JSON.stringify(queue));
+
+        showToast(`تم حفظ المبالغ ✅`);
+        input.value = '';
+        updateSyncUI();
+    }
+
+    function showToast(msg) {
+        const toast = document.getElementById("toast");
+        toast.innerHTML = msg;
+        toast.className = "show";
+        setTimeout(() => { toast.className = ""; }, 3000);
+    }
+
+    async function processQueue() {
+        if (queue.length > 0) {
+            const currentItem = queue[0];
+            try {
+                await fetch(GOOGLE_SCRIPT_URL, {
+                    method: "POST",
+                    mode: "no-cors",
+                    body: JSON.stringify(currentItem)
+                });
+                queue.shift();
+                localStorage.setItem('s_queue', JSON.stringify(queue));
+                updateSyncUI();
+            } catch (e) { console.log("المزامنة معلقة..."); }
+        }
+        setTimeout(processQueue, 3000);
+    }
+
+    function updateSyncUI() {
+        const status = document.getElementById('syncStatus');
+        if (queue.length > 0) {
+            status.innerHTML = `⏳ يتم الحفظ: ${queue.length}`;
+            status.style.color = "orange";
+        } else {
+            status.innerHTML = "جاهز ✅";
+            status.style.color = "green";
+        }
+    }
+
+    function askPin() {
+        if(prompt("أدخل الرمز:") === ADMIN_PIN) {
+            document.getElementById('adminPanel').style.display = 'block';
+            loadAdminData();
+        }
+    }
+
+    function loadAdminData() {
+        const div = document.getElementById('nameInputs');
+        div.innerHTML = '';
+        workers.forEach((n, i) => {
+            div.innerHTML += `<div>موظف${i+1}: <input type="text" id="nn-${i}" value="${n}"></div>`;
+        });
+        getReport();
+    }
+
+    function saveNames() {
+        for(let i=0; i<workers.length; i++) workers[i] = document.getElementById(`nn-${i}`).value;
+        localStorage.setItem('s_workers', JSON.stringify(workers));
+        alert("تم تحديث الأسماء");
+        init();
+    }
+
+    function getReport() {
+        const f = document.getElementById('dateF').value;
+        const t = document.getElementById('dateT').value;
+        let filtered = trans.filter(x => (!f || x.date >= f) && (!t || x.date <= t));
+        let cash = 0, card = 0, workerStats = {}; 
+        let rows = "";
+        filtered.reverse().forEach(x => {
+            if(x.type === 'كاش') cash += x.amt; else card += x.amt;
+            if(!workerStats[x.name]) workerStats[x.name] = {cash: 0, card: 0};
+            if(x.type === 'كاش') workerStats[x.name].cash += x.amt; else workerStats[x.name].card += x.amt;
+            rows += `<tr><td>${x.name}</td><td>${x.amt}</td><td>${x.type}</td><td>${x.date} ${x.time}</td></tr>`;
+        });
+
+        let summaryHtml = `<div class="summary-card"><table><tr style="background:#eee;"><th>الموظف</th><th>كاش</th><th>شبكة</th><th>المجموع</th></tr>`;
+        for (let name in workerStats) {
+            let total = workerStats[name].cash + workerStats[name].card;
+            summaryHtml += `<tr><td>${name}</td><td>${workerStats[name].cash}</td><td>${workerStats[name].card}</td><td style="font-weight:bold;">${total}</td></tr>`;
+        }
+        summaryHtml += `</table><div style="margin-top:15px; font-weight:bold;">إجمالي الكاش: ${cash} | إجمالي الشبكة: ${card} | المجموع الكلي: ${cash+card}</div></div>`;
+        
+        document.getElementById('summaryArea').innerHTML = summaryHtml;
+        document.getElementById('reportTable').innerHTML = `<table><tr><th>الموظف</th><th>المبلغ</th><th>النوع</th><th>التاريخ والوقت</th></tr>${rows}</table>`;
+    }
+
+    function closeAdmin() { document.getElementById('adminPanel').style.display = 'none'; }
+    init();
+</script>
+</body>
+</html>
